@@ -47,8 +47,8 @@ unsigned char whund = ((watervalue%1000)/100)+'0';
 unsigned char wtens = ((watervalue%100)/10)+'0';
 unsigned char wones = ((watervalue%10))+'0';
 *port_b &= 0b11111110; //turn sensor off
-unsigned char wString[13] = {'W','a','t','e','r',' ','l','e','v','e','l',':',' '}; //lol i dont think ansi c has strings 
-for (int i = 0;i < 13;i++){ //i think this is how you would do this
+unsigned char wString[14] = "Water level: "; //lol i dont think ansi c has strings 
+for (int i = 0;i < 14;i++){ //i think this is how you would do this
 U0putchar(wString[i]);
 }
 
