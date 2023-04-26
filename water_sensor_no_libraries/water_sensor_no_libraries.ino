@@ -1,12 +1,12 @@
 #include <dht.h> //install the DHTLib library
 #define DHT11_PIN 10
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+
 dht DHT; 
 #include <LiquidCrystal.h>
 
-
-
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 /*void loop(){
 int chk = DHT.read11(DHT11_PIN);
 Serial.print("Temperature = ");
@@ -51,7 +51,6 @@ int value = 0; // variable to store the sensor value
 unsigned char hString[17] = "Humidity Level: ";
 unsigned char tString[19] = "Temperature Level: ";
 unsigned char number[7] = "0000.00";*/
-unsigned char date
 // solution to multiple adc problem probably has to do with admux
 // i think you just call the same adc read function with different channel name
 
