@@ -1,28 +1,10 @@
-#include <dht.h> //install the DHTLib library
-#define DHT11_PIN 10
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
-dht DHT; 
-#include <LiquidCrystal.h>
-
-
-
-/*void loop(){
-int chk = DHT.read11(DHT11_PIN);
-Serial.print("Temperature = ");
-Serial.println(DHT.temperature);
-Serial.print("Humidity = ");
-Serial.println(DHT.humidity);
-delay(1000);
-}*/
-
-
-
-//-----
 
 #define RDA 0x80
 #define TBE 0x20
 
+#include <dht.h> //install the DHTLib library
+#include <LiquidCrystal.h>
+#include <Stepper.h> // Include the header file
 
 volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
 volatile unsigned char *myUCSR0B = (unsigned char *)0x00C1;
@@ -38,6 +20,21 @@ volatile unsigned int *my_ADC_DATA = (unsigned int *)0x78;
 volatile unsigned char *port_b = (unsigned char *)0x25;
 volatile unsigned char *ddr_b = (unsigned char *)0x24;
 volatile unsigned char *pin_b = (unsigned char *)0x23;
+volatile unsigned char *port_c = (unsigned char *)0x28;
+volatile unsigned char *ddr_c = (unsigned char *)0x27;
+volatile unsigned char *pin_c = (unsigned char *)0x26;
+
+volatile unsigned char *port_d = (unsigned char *)0x2B;
+volatile unsigned char *ddr_d = (unsigned char *)0x2A;
+volatile unsigned char *pin_d = (unsigned char *)0x29;
+
+volatile unsigned char *port_j = (unsigned char *)0x105;
+volatile unsigned char *ddr_j = (unsigned char *)0x104;
+volatile unsigned char *pin_j = (unsigned char *)0x103;
+
+volatile unsigned char *port_h = (unsigned char *)0x102;
+volatile unsigned char *ddr_h = (unsigned char *)0x101;
+volatile unsigned char *pin_h = (unsigned char *)0x100;
 
 volatile unsigned char *myTCCR1A = (unsigned char *)0x80;
 volatile unsigned char *myTCCR1B = (unsigned char *)0x81;
@@ -46,66 +43,143 @@ volatile unsigned char *myTIMSK1 = (unsigned char *)0x6F;
 volatile unsigned int *myTCNT1 = (unsigned int *)0x84;
 volatile unsigned char *myTIFR1 = (unsigned char *)0x36;
 
-int value = 0; // variable to store the sensor value
-/*unsigned char wString[14] = "Water level: ";
-unsigned char hString[17] = "Humidity Level: ";
-unsigned char tString[19] = "Temperature Level: ";
-unsigned char number[7] = "0000.00";*/
-unsigned char date
-// solution to multiple adc problem probably has to do with admux
-// i think you just call the same adc read function with different channel name
+int value = 0;
+unsigned char date;
+// b0 is water sensor enable pin 53
+// b1 is humidity/temp enable pin 52
+// b2 is button for enable/disable
+//  liquidcrystal is using pb6, pb5, pe3, pg5, pe5, pe4, aka 12, 11, 5, 4, 3, 2
+// dht is using pin 10, aka pb4
+// fan motor is using pin 14, 15, 16, aka pj1, pj0, ph1
+// water sensor is analog pin 0
+// potentiometer for stepper motor is analog pin 1
+// stepper motor is 22,23,24,25 aka pa0, pa1, pa2, pa3
+// leds are pd0-pd3 red, yellow, green, blue
+// reset button is pc1 36
+#define DHT11_PIN 10
+#define STEPS 32
+const int rs = 12,
+          en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2, waterPin = 0;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+Stepper stepper(STEPS, 22, 23, 24, 25);
+dht DHT;
+int Pval = 0;
+int potVal = 0;
 
 void setup()
 {
   U0init(9600);          // initialize
   adc_init();            // initialize ADC
-  *ddr_b |= 0b00000001;  // set b0 to be configurable on/off for water sensor
-  *port_b &= 0b11111110; // set b0 to be off by default
+  *ddr_b |= 0b00000011;  // set b0/b1 to be configurable on/off for water sensor
+  *ddr_b &= 0b11111011;  // b2 is  button input for enable/disable should be set to read
+  *ddr_c &= 0b11111101;  // pc1 is reset button
+  *port_b &= 0b11111100; // set b0/b1 to be off by default
+  *port_b |= 0b00000100; // set b2 to have pull up resistor
+  *port_c |= 0b00000010; // pc1 gets pull up resistor
+  *ddr_j |= 0b00000010;  // set enable to be output
+  *ddr_j |= 0b00000001;  // set dira to be output
+  *ddr_h |= 0b00000010;  // set dirb to be output
+  *port_j |= 0b00000001; // set direction fan 1
+  *port_h &= 0b11111101; // turn direction fan 2
+  *ddr_d |= 0b00001111;  // set pd0-pd3
+  stepper.setSpeed(200); // set up stepper
   lcd.begin(16, 2);
 }
-int waterPin = 0;
 
+bool enabled = false;
+bool error = true;
+bool fanon = false;
 void loop()
 {
-  *port_b |= 0b00000001;                        // turn sensor on
-  my_delay(100);                                // delay. i need to configure this to not take frequencies but seconds lol
-  unsigned int watervalue = adc_read(waterPin); // read the analog value from sensor
-  int chk = DHT.read11(DHT11_PIN);
-  lcd.setCursor(0, 0);
-  lcd.print("Temp = ");
-  lcd.print(DHT.temperature);
-  lcd.setCursor(0, 1);
-  lcd.print("Hmty = ");
-  lcd.print(DHT.humidity);
-  delay(1000);
-  /*unsigned char wthou = (watervalue / 1000) + '0';
-  unsigned char whund = ((watervalue % 1000) / 100) + '0';
-  unsigned char wtens = ((watervalue % 100) / 10) + '0';
-  unsigned char wones = ((watervalue % 10)) + '0';
-  *port_b &= 0b11111110;                       // turn sensor off
-  for (int i = 0; i < 14; i++)
-  { // i think this is how you would do this
-    U0putchar(wString[i]);
+
+  if ((*pin_b & 0b00000010 > 0) && !enabled)
+  {
+    enabled = true;
+  }
+  else if (*pin_b & 0b00000010 > 0 && enabled)
+  {
+    enabled = false;
   }
 
-  if (wthou != '0') // print number vvvvvvv
+  // put fan on when it needs to
+  // put fan off when it needs to
+  if (fanon)
   {
-    U0putchar(wthou);
+    *port_j |= 0b00000010; // set pj1
   }
-  if (whund != '0')
+  else
   {
-    U0putchar(whund);
+    *port_j &= 0b11111101; // set pj1
   }
-  if (wtens != '0')
+  if (!error)
+  { // adjust vent position, when no error
+    potVal = map(adc_read(1), 0, 1024, 0, 500);
+    if (potVal > Pval)
+      stepper.step(5);
+    if (potVal < Pval)
+      stepper.step(-5);
+    Pval = potVal;
+  }
+
+  if (enabled)
   {
-    U0putchar(wtens);
+    *port_b |= 0b00000001;                        // turn  water sensor on
+    *port_b |= 0b00000010;                        // turn temp/humidity snsor on
+    unsigned int watervalue = adc_read(waterPin); // read the analog value from sensor
+    if (watervalue < 50)
+    {
+      error = true;
+    }
+    else
+    {
+      error = false;
+    }
+
+    int chk = DHT.read11(DHT11_PIN);
+
+    if (!error)
+    {
+      lcd.setCursor(0, 0);
+      lcd.print("Temp = ");
+      lcd.print(DHT.temperature);
+      lcd.setCursor(0, 1);
+      lcd.print("Hmty = ");
+      lcd.print(DHT.humidity);
+      if (DHT.temperature > 10)
+      {
+        fanon = true;
+        //blue led on
+        *port_d &= 0b11111000;
+        *port_d |= 0b00001000;
+      }
+      else
+      {
+        fanon = false;
+        // green led on
+        *port_d &= 0b11110100;
+        *port_d |= 0b00000100;
+      }
+    }
+    else
+    { // if error
+      fanon = false;
+      lcd.setCursor(0, 0);
+      lcd.print("Water level is too low!");
+      // turn red on turn all others off
+      *port_d &= 0b11110001;
+      *port_d |= 0b00000001;
+    }
   }
-  U0putchar(wones);
-  U0putchar('\n');*/
+  else
+  { // DISABLED
+    // turn yellow on turn all others off
+    *port_d &= 0b11110010;
+    *port_d |= 0b00000010;
+    lcd.setCursor(0, 0);
+    lcd.print("disabled :/");
+  }
   my_delay(500);
 }
-
-
 
 void U0init(int U0baud)
 {
