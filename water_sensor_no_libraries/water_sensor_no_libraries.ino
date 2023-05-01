@@ -1,66 +1,10 @@
-#include <RTClib.h>
-
-RTC_DS1307 rtc;
-
-char daysOfTheWeek[7][12] = {
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday"
-};
-
-void setup () {
-  Serial.begin(9600);
-
-  // SETUP RTC MODULE
-  if (! rtc.begin()) {
-    Serial.println("Couldn't find RTC");
-    Serial.flush();
-    while (1);
-  }
-
-  // automatically sets the RTC to the date & time on PC this sketch was compiled
-  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-
-  // manually sets the RTC with an explicit date & time, for example to set
-  // January 21, 2021 at 3am you would call:
-  // rtc.adjust(DateTime(2021, 1, 21, 3, 0, 0));
-}
-
-void loop () {
-  DateTime now = rtc.now();
-  Serial.print("Date & Time: ");
-  Serial.print(now.year(), DEC);
-  Serial.print('/');
-  Serial.print(now.month(), DEC);
-  Serial.print('/');
-  Serial.print(now.day(), DEC);
-  Serial.print(" (");
-  Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
-  Serial.print(") ");
-  Serial.print(now.hour(), DEC);
-  Serial.print(':');
-  Serial.print(now.minute(), DEC);
-  Serial.print(':');
-  Serial.println(now.second(), DEC);
-
-  delay(1000); // delay 1 seconds
-}
-
-
-
-
-//---- clock timer code ^^^
-
 #define RDA 0x80
 #define TBE 0x20
 
 #include <dht.h> //install the DHTLib library
 #include <LiquidCrystal.h>
 #include <Stepper.h> // Include the header file
+#include <RTClib.h>
 
 volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
 volatile unsigned char *myUCSR0B = (unsigned char *)0x00C1;
@@ -79,18 +23,18 @@ volatile unsigned char *pin_b = (unsigned char *)0x23;
 volatile unsigned char *port_c = (unsigned char *)0x28;
 volatile unsigned char *ddr_c = (unsigned char *)0x27;
 volatile unsigned char *pin_c = (unsigned char *)0x26;
-
 volatile unsigned char *port_d = (unsigned char *)0x2B;
 volatile unsigned char *ddr_d = (unsigned char *)0x2A;
 volatile unsigned char *pin_d = (unsigned char *)0x29;
-
 volatile unsigned char *port_j = (unsigned char *)0x105;
 volatile unsigned char *ddr_j = (unsigned char *)0x104;
 volatile unsigned char *pin_j = (unsigned char *)0x103;
-
 volatile unsigned char *port_h = (unsigned char *)0x102;
 volatile unsigned char *ddr_h = (unsigned char *)0x101;
 volatile unsigned char *pin_h = (unsigned char *)0x100;
+volatile unsigned char *port_l = (unsigned char *)0x10B;
+volatile unsigned char *ddr_l = (unsigned char *)0x10A;
+volatile unsigned char *pin_l = (unsigned char *)0x109;
 
 volatile unsigned char *myTCCR1A = (unsigned char *)0x80;
 volatile unsigned char *myTCCR1B = (unsigned char *)0x81;
@@ -98,20 +42,38 @@ volatile unsigned char *myTCCR1C = (unsigned char *)0x82;
 volatile unsigned char *myTIMSK1 = (unsigned char *)0x6F;
 volatile unsigned int *myTCNT1 = (unsigned int *)0x84;
 volatile unsigned char *myTIFR1 = (unsigned char *)0x36;
-
+// interrupts
+volatile unsigned char *mySREG = (unsigned char *)0x5F;
+volatile unsigned char *myEICRA = (unsigned char *)0x69;
+volatile unsigned char *myEIMSK = (unsigned char *)0x3D;
 int value = 0;
-unsigned char date;
-// b0 is water sensor enable pin 53
-// b1 is humidity/temp enable pin 52
-// b2 is button for enable/disable
-//  liquidcrystal is using pb6, pb5, pe3, pg5, pe5, pe4, aka 12, 11, 5, 4, 3, 2
+/*char daysOfTheWeek[7][12] = {
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+};*/
+
+// elena finished
+//  b0 is water sensor enable pin 53
+//  water sensor is analog pin 0
+//  potentiometer for stepper motor is analog pin 1
+//   liquidcrystal is using pb6, pb5, pe3, pg5, pe5, pe4, aka 12, 11, 5, 4, 3, 2
+//  stepper motor is 22,23,24,25 aka pa0, pa1, pa2, pa3
+//  b1 is humidity/temp enable pin 52
 // dht is using pin 10, aka pb4
-// fan motor is using pin 14, 15, 16, aka pj1, pj0, ph1
-// water sensor is analog pin 0
-// potentiometer for stepper motor is analog pin 1
-// stepper motor is 22,23,24,25 aka pa0, pa1, pa2, pa3
-// leds are pd0-pd3 red, yellow, green, blue
-// reset button is pc1 36
+// fan motor is using pin 14, 15, 16, aka pj1, pj0, ph1 ,dira, enable, dirb respectively
+
+
+
+// leds are pl0-pl3 yellow,green, blue, red aka 49-46
+// enable button is pd2 19
+// reset button is pd3 18
+// rtc uses scl and sda that noo ne else can use
+RTC_DS1307 rtc;
 #define DHT11_PIN 10
 #define STEPS 32
 const int rs = 12,
@@ -121,122 +83,282 @@ Stepper stepper(STEPS, 22, 23, 24, 25);
 dht DHT;
 int Pval = 0;
 int potVal = 0;
-
+volatile int state = 0; // 0 is disabled, 1 is idle, 2 is running, 3 is error
+volatile int old = 0;
 void setup()
 {
+  *mySREG &= 0b01111111; // turn off global interrupt
   U0init(9600);          // initialize
   adc_init();            // initialize ADC
   *ddr_b |= 0b00000011;  // set b0/b1 to be configurable on/off for water sensor
-  *ddr_b &= 0b11111011;  // b2 is  button input for enable/disable should be set to read
   *ddr_c &= 0b11111101;  // pc1 is reset button
   *port_b &= 0b11111100; // set b0/b1 to be off by default
-  *port_b |= 0b00000100; // set b2 to have pull up resistor
   *port_c |= 0b00000010; // pc1 gets pull up resistor
   *ddr_j |= 0b00000010;  // set enable to be output
   *ddr_j |= 0b00000001;  // set dira to be output
   *ddr_h |= 0b00000010;  // set dirb to be output
   *port_j |= 0b00000001; // set direction fan 1
   *port_h &= 0b11111101; // turn direction fan 2
-  *ddr_d |= 0b00001111;  // set pd0-pd3
+  *ddr_l |= 0b00001111;  // set pl0-pl3 as output for led
+  *port_l &= 0b11110001; // set leds to be off by default
+  *port_l |= 0b00000001; // set except yellow :)
+  *port_j &= 0b11111101; // fan is off by default
+  *port_d |= 0b00001100; // set d0/d1 to have pull up resistor
+  *ddr_d &= 0b11110011;  // set pd0/d1 as input for button
+
   stepper.setSpeed(200); // set up stepper
   lcd.begin(16, 2);
+  *myEICRA |= 0b10100000;
+  *myEICRA &= 0b01011111; // falling edge mode for interrupt 0
+  *myEIMSK |= 0b00001100; // turn on interrupt 0
+  *mySREG |= 0b10000000;  // turn on global interrupt
+  lcd.setCursor(0, 0); //initialize lcd as disabled
+  lcd.print("Machine is off.");
 }
 
 bool enabled = false;
 bool error = true;
 bool fanon = false;
+
+/*
+int state = 0; 0= disabled 1 = idle 2= enabled 3 = error
+bool trigger = 0;
+
+interrupt button -> trigger = 0, if state = 0 then state -> 1
+if state != 0, then state -> 0
+interrupt
 void loop()
 {
+  if(!trigger && state = 0)
+  {
+    bla bla bla print the date staate turn leds on/off whatever
+    trigger = true;
+  }
+  else if(!trigger && state = 1)
+  { print the date state turn leds on/off whatever
+    bla bla bal
+    trigger = true;
+  }
+}
+*/
+unsigned int watervalue = 0;
+void loop()
+{
+  DateTime now = rtc.now();
+  int year = now.year();
+  int month = now.month();
+  int day = now.day();
+  int hour = now.hour();
+  int minute = now.minute();
+  int second = now.second();
 
-  if ((*pin_b & 0b00000010 > 0) && !enabled)
-  {
-    enabled = true;
-  }
-  else if (*pin_b & 0b00000010 > 0 && enabled)
-  {
-    enabled = false;
-  }
-
-  // put fan on when it needs to
-  // put fan off when it needs to
-  if (fanon)
-  {
-    *port_j |= 0b00000010; // set pj1
-  }
-  else
-  {
-    *port_j &= 0b11111101; // set pj1
-  }
-  if (!error)
-  { // adjust vent position, when no error
+  if (state != 3) // if NOT ERROR
+  {               // adjust vent position, when no error
     potVal = map(adc_read(1), 0, 1024, 0, 500);
     if (potVal > Pval)
+    {
+      char printarray[21] = "Vent adjusted up at ";
+      printTime(year, month, day, hour, minute, second);
+      U0putchar('.');
+      U0putchar('\n');
       stepper.step(5);
+    }
     if (potVal < Pval)
+    {
       stepper.step(-5);
+      char printarray[23] = "Vent adjusted down at ";
+      printTime(year, month, day, hour, minute, second);
+      U0putchar('.');
+      U0putchar('\n');
+    }
     Pval = potVal;
   }
+  if (state != 0)                    // if NOT DISABLED,
+  {                                  // read
+    int chk = DHT.read11(DHT11_PIN); // read humid/temp
+    watervalue = adc_read(waterPin); // read the analog value from sensor
+  }
 
-  if (enabled)
+  switch (state)
+  {       // transitions in and out of disabled
+  case 0: // disabled
+    if (old != 0)
+    {
+      old = 0;
+      char printarray[23] = "Machine turned off at ";
+
+      for (int i = 0; i < 23; i++)
+      {
+        U0putchar(printarray[i]);
+      }
+      printTime(year, month, day, hour, minute, second);
+      U0putchar('.');
+      U0putchar('\n');
+      // turn yellow on turn all others off
+      *port_l &= 0b11110001;
+      *port_l |= 0b00000001;
+      *port_j &= 0b11111101; // turn off fan (might already be off oh well)
+      *port_b &= 0b11111100; // disable sensors
+      lcd.setCursor(0, 0);
+      lcd.print("Machine is off.");
+    }
+    break;
+  default: // any other state
+    if (old == 0)
+    {
+      // old will be set next switch statement
+      *port_b |= 0b00000011; // enable sensors
+    }
+  }
+
+  // monitoring
+  if (watervalue < 50 && state != 0 && state != 3) // if water is low and not disabled or error
   {
-    *port_b |= 0b00000001;                        // turn  water sensor on
-    *port_b |= 0b00000010;                        // turn temp/humidity snsor on
-    unsigned int watervalue = adc_read(waterPin); // read the analog value from sensor
-    if (watervalue < 50)
-    {
-      error = true;
-    }
-    else
-    {
-      error = false;
-    }
-
-    int chk = DHT.read11(DHT11_PIN);
-
-    if (!error)
-    {
-      lcd.setCursor(0, 0);
-      lcd.print("Temp = ");
-      lcd.print(DHT.temperature);
-      lcd.setCursor(0, 1);
-      lcd.print("Hmty = ");
-      lcd.print(DHT.humidity);
-      if (DHT.temperature > 10)
-      {
-        fanon = true;
-        //blue led on
-        *port_d &= 0b11111000;
-        *port_d |= 0b00001000;
-      }
-      else
-      {
-        fanon = false;
-        // green led on
-        *port_d &= 0b11110100;
-        *port_d |= 0b00000100;
-      }
-    }
-    else
-    { // if error
-      fanon = false;
-      lcd.setCursor(0, 0);
-      lcd.print("Water level is too low!");
-      // turn red on turn all others off
-      *port_d &= 0b11110001;
-      *port_d |= 0b00000001;
-    }
+    state = 3; // set state to error
   }
-  else
-  { // DISABLED
-    // turn yellow on turn all others off
-    *port_d &= 0b11110010;
-    *port_d |= 0b00000010;
+  if (DHT.temperature > 10 && state == 1) // if temp is high and state is idle
+  {
+    state = 2; // set state to enabled
+  }
+  if (DHT.temperature < 10 && state == 2) // if temp is low and state is enabled
+  {
+    state = 1; // set state to idle
+  }
+
+  switch (state)
+  {       // transitions for 1-3 and lcd
+  case 0: // disabled
+    // transition in previous switch statement
     lcd.setCursor(0, 0);
-    lcd.print("disabled :/");
+    lcd.print("Machine is off");
+    break;
+  case 1: // idle
+    if (old != 1)
+    {
+      old = 1;
+      char printarray[33] = "Machine idled/fan turned off at ";
+      for (int i = 0; i < 33; i++)
+      {
+        U0putchar(printarray[i]);
+      }
+      printTime(year, month, day, hour, minute, second);
+      U0putchar('.');
+      U0putchar('\n');
+      *port_j &= 0b11111101; // turn off fan (might already be off oh well)
+      *port_l &= 0b11110010; // turn on green
+      *port_l |= 0b00000010;
+    }
+    lcd.setCursor(0, 0);
+    lcd.print("Temp = ");
+    lcd.print(DHT.temperature);
+    lcd.setCursor(0, 1);
+    lcd.print("Hmty = ");
+    lcd.print(DHT.humidity);
+    break;
+  case 2: // running
+    if (old != 2)
+    {
+      old = 2;
+      char printarray[34] = "Machine enabled/fan turned on at ";
+      for (int i = 0; i < 34; i++)
+      {
+        U0putchar(printarray[i]);
+      }
+      printTime(year, month, day, hour, minute, second);
+      U0putchar('.');
+      U0putchar('\n');
+      *port_j |= 0b00000010; // turn on fan
+      *port_l &= 0b11110100; // turn on blue
+      *port_l |= 0b00000100;
+    }
+    lcd.setCursor(0, 0);
+    lcd.print("Temp = ");
+    lcd.print(DHT.temperature);
+    lcd.setCursor(0, 1);
+    lcd.print("Hmty = ");
+    lcd.print(DHT.humidity);
+    break;
+  case 3: // error
+    if (old != 3)
+    {
+      old = 3;
+      char printarray[33] = "Machine error at ";
+      for (int i = 0; i < 33; i++)
+      {
+        U0putchar(printarray[i]);
+      }
+      printTime(year, month, day, hour, minute, second);
+      U0putchar('.');
+      U0putchar('\n');
+      *port_j &= 0b11111101; // turn off fan (might already be off oh well)
+      *port_l &= 0b11111000; // turn on red
+      *port_l |= 0b00001000;
+      lcd.setCursor(0, 0);
+      lcd.print("Water level is too low.");
+    }
+    break;
   }
+
   my_delay(500);
 }
 
+ISR(INT2_vect)
+{
+  if (state == 0)
+  {
+    old = 0;
+    state = 1;
+  }
+  else
+  {
+    old = state;
+    state = 0;
+  }
+}
+ISR(INT3_vect)
+{
+  if (state == 0)
+  {
+//wow look, nothing!
+  }
+  else
+  {
+    old= state;
+    state = 1;
+  }
+}
+
+void printTime(int year, int month, int day, int hour, int minute, int second)
+{
+  char time[22] = {
+      month / 10 + '0',
+      month % 10 + '0',
+      '/',
+      day / 10 + '0',
+      day % 10 + '0',
+      '/',
+      (year / 1000) + '0',
+      (year % 1000 / 100) + '0',
+      (year % 100 / 10) + '0',
+      (year % 10) + '0',
+      ' ',
+      'a',
+      't',
+      ' ',
+      hour / 10 + '0',
+      hour % 10 + '0',
+      ':',
+      minute / 10 + '0',
+      minute % 10 + '0',
+      ':',
+      second / 10 + '0',
+      second % 10 + '0',
+  };
+  for (int i = 0; i < 22; i++)
+  {
+    U0putchar(time[i]);
+  }
+}
 void U0init(int U0baud)
 {
   unsigned long FCPU = 16000000;
