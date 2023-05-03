@@ -135,7 +135,6 @@ bool fanon = false;
 /*
 int state = 0; 0= disabled 1 = idle 2= enabled 3 = error
 bool trigger = 0;
-
 interrupt button -> trigger = 0, if state = 0 then state -> 1
 if state != 0, then state -> 0
 interrupt
@@ -215,7 +214,7 @@ void loop()
       U0putchar('.');
       U0putchar('\n');
       // turn yellow on turn all others off
-      Serial.println("TURNED OFF AT DISABLE");
+      // Serial.println("TURNED OFF AT DISABLE");
       *port_l &= 0b11110001;
       *port_l |= 0b00000001;
       *port_b &= 0b11111100; // disable sensors
@@ -242,10 +241,10 @@ void loop()
     watervalue = adc_read(waterPin); // read the analog value from sensor
     //Serial.println("a");
   }
-//Serial.print(watervalue);
+// Serial.print(watervalue);
  //U0putchar('\n');
   // monitoring
-  if (watervalue < 15 && state != 0 && state != 3) // if water is low and not disabled or error
+  if (watervalue <25 && state != 0 && state != 3) // if water is low and not disabled or error
   {
     state = 3; // set state to error
   }
@@ -280,7 +279,7 @@ void loop()
       printTime();
       U0putchar('.');
       U0putchar('\n');
-      Serial.println("TURNED OFF AT IDLE");
+      // Serial.println("TURNED OFF AT IDLE");
       *port_j &= 0b11111101; // turn off fan (might already be off oh well)
       *port_l &= 0b11110010; // turn on green
       *port_l |= 0b00000010;
@@ -331,7 +330,7 @@ void loop()
       printTime();
       U0putchar('.');
       U0putchar('\n');
-      Serial.println("TURNED OFF AT ERROR");
+      // Serial.println("TURNED OFF AT ERROR");
       *port_j &= 0b11111101; // turn off fan (might already be off oh well)
       *port_l &= 0b11111000; // turn on red
       *port_l |= 0b00001000;
