@@ -1,23 +1,24 @@
 #define RDA 0x80
 #define TBE 0x20
-
+// useful for uart ^
+//libraries vvv
 #include <dht.h> //install the DHTLib library
 #include <LiquidCrystal.h>
 #include <Stepper.h> // Include the header file
 #include <Wire.h>
 #include <RTClib.h>
-
+//pointers for uart
 volatile unsigned char *myUCSR0A = (unsigned char *)0x00C0;
 volatile unsigned char *myUCSR0B = (unsigned char *)0x00C1;
 volatile unsigned char *myUCSR0C = (unsigned char *)0x00C2;
 volatile unsigned int *myUBRR0 = (unsigned int *)0x00C4;
 volatile unsigned char *myUDR0 = (unsigned char *)0x00C6;
-
+//pointers for adc
 volatile unsigned char *my_ADMUX = (unsigned char *)0x7C;
 volatile unsigned char *my_ADCSRB = (unsigned char *)0x7B;
 volatile unsigned char *my_ADCSRA = (unsigned char *)0x7A;
 volatile unsigned int *my_ADC_DATA = (unsigned int *)0x78;
-
+//GPIO pointers
 volatile unsigned char *port_b = (unsigned char *)0x25;
 volatile unsigned char *ddr_b = (unsigned char *)0x24;
 volatile unsigned char *pin_b = (unsigned char *)0x23;
@@ -36,18 +37,18 @@ volatile unsigned char *pin_h = (unsigned char *)0x100;
 volatile unsigned char *port_l = (unsigned char *)0x10B;
 volatile unsigned char *ddr_l = (unsigned char *)0x10A;
 volatile unsigned char *pin_l = (unsigned char *)0x109;
-
+//timer pointers
 volatile unsigned char *myTCCR1A = (unsigned char *)0x80;
 volatile unsigned char *myTCCR1B = (unsigned char *)0x81;
 volatile unsigned char *myTCCR1C = (unsigned char *)0x82;
 volatile unsigned char *myTIMSK1 = (unsigned char *)0x6F;
 volatile unsigned int *myTCNT1 = (unsigned int *)0x84;
 volatile unsigned char *myTIFR1 = (unsigned char *)0x36;
-// interrupts
+// interrupt pointers
 volatile unsigned char *mySREG = (unsigned char *)0x5F;
 volatile unsigned char *myEICRA = (unsigned char *)0x69;
 volatile unsigned char *myEIMSK = (unsigned char *)0x3D;
-int value = 0;
+
 /*char daysOfTheWeek[7][12] = {
   "Sunday",
   "Monday",
@@ -74,22 +75,24 @@ int value = 0;
 // enable button is pd2 19
 // reset button is pd3 18
 // rtc uses scl and sda that noo ne else can use
-RTC_DS1307 rtc;
-#define DHT11_PIN 10
-#define STEPS 32
-const int rs = 12,
+
+//other initializations
+RTC_DS1307 rtc; //clock
+#define DHT11_PIN 10 //hum/temp
+#define STEPS 32 //stepper motor
+const int rs = 12, //lcd
           en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2, waterPin = 0;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
-Stepper stepper(STEPS, 22, 24, 23, 25);
-dht DHT;
-int Pval = 0;
-int potVal = 0;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7); //more lcd
+Stepper stepper(STEPS, 22, 24, 23, 25); //stepper
+dht DHT; //hum/temp
+int Pval = 0; //stepper
+int potVal = 0; //stepper
 volatile int state = 0; // 0 is disabled, 1 is idle, 2 is running, 3 is error
 volatile int old = 0;
 void setup()
 {
    
-  state = 0;
+  state = 0; //initialize
   old = 0;
   *mySREG &= 0b01111111; // turn off global interrupt
   U0init(9600);          // initialize
@@ -108,7 +111,7 @@ void setup()
   *port_d |= 0b00001100; // set d0/d1 to have pull up resistor
   *ddr_d &= 0b11110011;  // set pd0/d1 as input for button
 
-  stepper.setSpeed(1000); // set up stepper
+  stepper.setSpeed(1100); // set up stepper
   lcd.begin(16, 2);
   *myEICRA |= 0b10100000; // falling edge mode for interrupt 2/3
   *myEICRA &= 0b10101111; // falling edge mode for interrupt 2/3
@@ -119,7 +122,7 @@ void setup()
 
         //  U0putchar('e');
 
-  if(!rtc.begin()){
+  if(!rtc.begin()){ //check
   char printarray[18] = "Couldn't find RTC";
     for(int i = 0;i < 18;i++)
     {
@@ -152,43 +155,40 @@ void loop()
   }
 }
 */
-unsigned int watervalue = 0;
+unsigned int watervalue = 0; //store water adc reading
 void loop()
 {
 
 
   if (state != 3) // if NOT ERROR 
   {               // adjust vent position, when no error
-    potVal = map(adc_read(1), 0, 1024, 0, 500);
-    int potValhBound = potVal+20;
-    int potVallBound = potVal-20;
+    potVal = map(adc_read(1), 0, 1024, 0, 300);
+    int potValhBound = potVal+10;
+    int potVallBound = potVal-10;
     // Serial.print(potVal);
     // U0putchar('\n');
     // Serial.print(Pval);
     // U0putchar('\n');
     // U0putchar('a');
     // U0putchar('\n');
-    if (!(potVallBound < Pval && potValhBound > Pval))
+    if (!(potVallBound < Pval && potValhBound > Pval)) //margin of error so it doesnt change to noise
     {
     if (potVal > Pval)
     {
-      char printarray[21] = "Vent adjusted up at ";
-       for (int i = 0; i < 21; i++)
-      {
-        U0putchar(printarray[i]);
-      }
-      printTime();
-      U0putchar('.');
-      U0putchar('\n');
+
       stepper.step(5);
     }
     if (potVal < Pval)
     {
       stepper.step(-5);
-      char printarray[23] = "Vent adjusted down at ";
-      for (int i = 0; i < 23; i++)
+  
+    }
+        if (!(potVallBound-30 < Pval && potValhBound+30 > Pval)) //margin of error so it doesnt spam serial monitor
+    {
+      char printarray[18] = "Vent adjusted at "; 
+       for (int i = 0; i < 18; i++)
       {
-        U0putchar(printarray[i]);
+        U0putchar(printarray[i]); //replacement for serial println
       }
       printTime();
       U0putchar('.');
@@ -215,11 +215,14 @@ void loop()
       U0putchar('\n');
       // turn yellow on turn all others off
       // Serial.println("TURNED OFF AT DISABLE");
+      
       *port_l &= 0b11110001;
       *port_l |= 0b00000001;
       *port_b &= 0b11111100; // disable sensors
       lcd.setCursor(0, 0);
-      lcd.print("Machine is off.");
+      lcd.print("Machine is off. ");
+      lcd.setCursor(0, 1);
+      lcd.print("                ");
     }
     break;
   default: // any other state
@@ -230,7 +233,7 @@ void loop()
     }
   }
     *mySREG &= 0b01111111; // turn off global interrupt
-  delay(1000);
+  my_delay(1);
     *mySREG |= 0b10000000;  // turn on global interrupt
 
   if (state != 0)                    // if NOT DISABLED,
@@ -242,9 +245,9 @@ void loop()
     //Serial.println("a");
   }
 // Serial.print(watervalue);
- //U0putchar('\n');
+//  U0putchar('\n');
   // monitoring
-  if (watervalue <25 && state != 0 && state != 3) // if water is low and not disabled or error
+  if (watervalue < 50 && state != 0 && state != 3) // if water is low and not disabled or error
   {
     state = 3; // set state to error
   }
@@ -291,6 +294,7 @@ void loop()
     lcd.setCursor(0, 1);
     lcd.print("Hmty = ");
     lcd.print(DHT.humidity);
+    lcd.print("   ");
     break;
   case 2: // running
     if (old != 2)
@@ -304,19 +308,21 @@ void loop()
       printTime();
       U0putchar('.');
       U0putchar('\n');
-      Serial.println("TURNED ON ");
+      // Serial.println("TURNED ON ");
       *port_j |= 0b00000001; // set direction fan 1
       *port_h &= 0b11111101; // set direction fan 2
       *port_j |= 0b00000010; // turn on fan
       *port_l &= 0b11110100; // turn on blue
       *port_l |= 0b00000100;
     }
-    lcd.setCursor(0, 0);
+    lcd.setCursor(0, 0); //lcd stuff
     lcd.print("Temp = ");
     lcd.print(DHT.temperature);
+    lcd.print("   ");
     lcd.setCursor(0, 1);
     lcd.print("Hmty = ");
     lcd.print(DHT.humidity);
+    lcd.print("   ");
     break;
   case 3: // error
     if (old != 3)
@@ -336,6 +342,8 @@ void loop()
       *port_l |= 0b00001000;
       lcd.setCursor(0, 0);
       lcd.print("Water level low.");
+      lcd.setCursor(0, 1);
+      lcd.print("                ");
     }
     break;
   }
@@ -345,10 +353,10 @@ void loop()
     *mySREG |= 0b10000000;  // turn on global interrupt
 }
 
-ISR(INT2_vect)
+ISR(INT2_vect) //set button is pressed
 {
- U0putchar('d');
- U0putchar('\n');
+//  U0putchar('d');
+//  U0putchar('\n');
   if (state == 0)
   {
     old = 0;
@@ -360,10 +368,10 @@ ISR(INT2_vect)
     state = 0;
   }
 }
-ISR(INT3_vect)
+ISR(INT3_vect) //reset button is pressed
 {
-  U0putchar('e');
- U0putchar('\n');
+//   U0putchar('e');
+//  U0putchar('\n');
     if (state == 0)
   {
 //wow look, nothing!
@@ -375,9 +383,9 @@ ISR(INT3_vect)
   }
 }
 
-void printTime()
+void printTime() //reads and prints the time
 {
-  DateTime now = rtc.now();
+  DateTime now = rtc.now(); //crashes program if called too often
   int year = now.year();
   int month = now.month();
   int day = now.day();
@@ -413,7 +421,7 @@ void printTime()
     U0putchar(time[i]);
   }
 }
-void U0init(int U0baud)
+void U0init(int U0baud) //serial.begin
 {
   unsigned long FCPU = 16000000;
   unsigned int tbaud;
@@ -424,7 +432,7 @@ void U0init(int U0baud)
   *myUBRR0 = tbaud;
 }
 
-void adc_init()
+void adc_init() //initialize adc
 {
   // setup the A register
   *my_ADCSRA |= 0b10000000; // set bit   7 to 1 to enable the ADC
@@ -441,7 +449,7 @@ void adc_init()
   *my_ADMUX &= 0b11100000; // clear bit 4-0 to 0 to reset the channel and gain bits
 }
 
-unsigned int adc_read(unsigned char adc_channel_num)
+unsigned int adc_read(unsigned char adc_channel_num) //adc read
 {
   // clear the channel selection bits (MUX 4:0)
   *my_ADMUX &= 0b11100000;
@@ -466,15 +474,15 @@ unsigned int adc_read(unsigned char adc_channel_num)
   return *my_ADC_DATA;
 }
 
-unsigned char U0kbhit()
+unsigned char U0kbhit() //reading from serial monitor
 {
   return *myUCSR0A & RDA;
 }
-unsigned char U0getchar()
+unsigned char U0getchar() //reading from serial monitor
 {
   return *myUDR0;
 }
-void U0putchar(unsigned char U0pdata)
+void U0putchar(unsigned char U0pdata) //outputting to serial monitor
 {
   while ((*myUCSR0A & TBE) == 0)
     ;
@@ -483,7 +491,7 @@ void U0putchar(unsigned char U0pdata)
 
 // void U0putstr(un)
 
-void my_delay(unsigned int freq)
+void my_delay(unsigned int freq) //takes frequency to make a delay
 {
   // calc period
   double period = 1.0 / double(freq);
