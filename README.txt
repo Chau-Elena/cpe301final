@@ -1,5 +1,6 @@
 Group Name: Masterson-Chau
 Names: Jacob Masterson, Elena Chau
+Link to video demonstration:  https://youtu.be/En1O1CxAWRo 
 
 The design is a swamp cooler in which there are four states: disable, idle, running, error. 
 The system uses interrupts in order to switch between disable and the other 3 states, and to reset after an error.
